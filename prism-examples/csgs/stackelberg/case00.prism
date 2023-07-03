@@ -1,0 +1,61 @@
+// CSG model of Stackelberg Equilibrium
+// Case 01
+
+csg 
+
+player pA mA endplayer
+player pB mB endplayer
+
+
+// Actions for player A and B
+module mA
+    [a1] true -> true;
+    [a2] true -> true;
+endmodule
+
+module mB
+    [b1] true -> true;
+    [b2] true -> true;
+endmodule
+
+
+// Transitions for player A and B
+module mT
+    s : [1..2];
+    
+    [a1,b1] s=1 -> 0.5:(s'=1) + 0.5:(s'=2);
+    [a1,b2] s=1 -> 0:(s'=1) + 1:(s'=2);
+    [a2,b1] s=1 -> 0.25:(s'=1) + 0.75:(s'=2);
+    [a2,b2] s=1 -> 1:(s'=1) + 0:(s'=2);
+
+    [a1,b1] s=2 -> 0.5:(s'=1) + 0.5:(s'=2);
+    [a1,b2] s=2 -> 0:(s'=1) + 1:(s'=2);
+    [a2,b1] s=2 -> 0.25:(s'=1) + 0.75:(s'=2);
+    [a2,b2] s=2 -> 1:(s'=1) + 0:(s'=2);
+endmodule
+
+
+// Rewards for player A and B
+rewards "rA"
+    [a1,b1] s=1 : 10;
+    [a1,b2] s=1 : -5;
+    [a2,b1] s=1 : -8;
+    [a2,b2] s=1 : 6;
+
+    [a1,b1] s=2 : 7;
+    [a1,b2] s=2 : -1;
+    [a2,b1] s=2 : -3;
+    [a2,b2] s=2 : 2;
+endrewards
+
+rewards "rB"
+    [a1,b1] s=1 : -10;
+    [a1,b2] s=1 : 6;
+    [a2,b1] s=1 : 4;
+    [a2,b2] s=1 : -4;
+
+    [a1,b1] s=2 : -5;
+    [a1,b2] s=2 : 6;
+    [a2,b1] s=2 : 10;
+    [a2,b2] s=2 : -10;
+endrewards
