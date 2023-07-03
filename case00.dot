@@ -1,0 +1,33 @@
+digraph CSG {
+node [label="",shape="box"];
+0 [label="0\n(1)"];
+0 -> n0_0  [label="0:[a1][b2]",arrowhead="none"];
+n0_0 [ shape=point,width=0.1,height=0.1,label="" ];
+n0_0 -> 1  [label="1"];
+0 -> n0_1  [label="1:[a2][b2]",arrowhead="none"];
+n0_1 [ shape=point,width=0.1,height=0.1,label="" ];
+n0_1 -> 0  [label="1"];
+0 -> n0_2  [label="2:[a1][b1]",arrowhead="none"];
+n0_2 [ shape=point,width=0.1,height=0.1,label="" ];
+n0_2 -> 0  [label="0.5"];
+n0_2 -> 1  [label="0.5"];
+0 -> n0_3  [label="3:[a2][b1]",arrowhead="none"];
+n0_3 [ shape=point,width=0.1,height=0.1,label="" ];
+n0_3 -> 0  [label="0.25"];
+n0_3 -> 1  [label="0.75"];
+1 [label="1\n(2)"];
+1 -> n1_0  [label="0:[a1][b2]",arrowhead="none"];
+n1_0 [ shape=point,width=0.1,height=0.1,label="" ];
+n1_0 -> 1  [label="1"];
+1 -> n1_1  [label="1:[a2][b2]",arrowhead="none"];
+n1_1 [ shape=point,width=0.1,height=0.1,label="" ];
+n1_1 -> 0  [label="1"];
+1 -> n1_2  [label="2:[a1][b1]",arrowhead="none"];
+n1_2 [ shape=point,width=0.1,height=0.1,label="" ];
+n1_2 -> 0  [label="0.5"];
+n1_2 -> 1  [label="0.5"];
+1 -> n1_3  [label="3:[a2][b1]",arrowhead="none"];
+n1_3 [ shape=point,width=0.1,height=0.1,label="" ];
+n1_3 -> 0  [label="0.25"];
+n1_3 -> 1  [label="0.75"];
+}
