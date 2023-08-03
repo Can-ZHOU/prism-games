@@ -1,0 +1,2 @@
+const int k;
+<<pA:pB>>max=? (R{"rA"}[C<=k] + R{"rB"}[C<=k])

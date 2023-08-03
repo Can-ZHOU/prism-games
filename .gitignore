@@ -38,3 +38,12 @@ prism/\.project
 # Eclipse project custom settings
 \.settings/
 prism/\.settings/
+
+.idea
+.iml
+prism-games.iml
+prism/lib/libgmp.so.10
+prism/lib/libppl.so.14
+prism/lib/libyices.so.2.6
+prism/lib/yices.jar
+

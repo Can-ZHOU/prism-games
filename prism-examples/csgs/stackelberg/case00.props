@@ -1,2 +1,3 @@
 const int k;
 <<pA:pB>>max=? (R{"rA"}[C<=k] + R{"rB"}[C<=k])
+// <<pA:pB>>max=? (R{"rA"}[F s=2] + R{"rB"}[F s=2])
