@@ -39,6 +39,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import edu.jas.poly.*;
 import org.apache.commons.math3.util.Precision;
@@ -47,12 +49,7 @@ import explicit.rewards.CSGRewards;
 import explicit.rewards.MDPRewards;
 import parser.ast.Coalition;
 import parser.ast.ExpressionTemporal;
-import prism.Pair;
-import prism.PrismComponent;
-import prism.PrismException;
-import prism.PrismLangException;
-import prism.PrismSettings;
-import prism.PrismUtils;
+import prism.*;
 import strat.CSGStrategy;
 import strat.CSGStrategy.CSGStrategyType;
 
@@ -944,6 +941,50 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 		return null;
 	}
 
+	private List<List<String>> getStateActionList(CSG<Double> csg, List<Integer> colA, List<Integer> colB, int stationIndex) {
+		List<Object> actionsList = csg.getAvailableActions(stationIndex);
+
+		HashSet<String> hashA = new HashSet<>();
+		HashSet<String> hashB = new HashSet<>();
+
+		for (int i = 0; i < actionsList.size(); i++) {
+			List<String> extractedList = new ArrayList<>();
+
+			// Define the regular expression pattern for matching substrings inside square brackets
+			Pattern pattern = Pattern.compile("\\[[^\\]]+\\]");
+
+			// Create a Matcher object to find matches in the input string
+			String obj = (String) actionsList.get(i);
+			Matcher matcher = pattern.matcher(obj);
+
+			// Loop through the matches and add them to the list
+			while (matcher.find()) {
+				extractedList.add(matcher.group());
+			}
+
+			String actionA = "";
+			for (int j : colA) {
+				actionA += extractedList.get(j);
+			}
+
+			String actionB = "";
+			for (int j : colB) {
+				actionB += extractedList.get(j);
+			}
+
+			hashA.add(actionA);
+			hashB.add(actionB);
+		}
+
+		List<String> listA = new ArrayList<>(hashA);
+		List<String> listB = new ArrayList<>(hashB);
+
+		List<List<String>> res = new ArrayList<>();
+		res.add(listA);
+		res.add(listB);
+		return res;
+	}
+
 	/**
 	 * Helper function for matching action to trans.
 	 *
@@ -955,7 +996,7 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 	 */
 	private double[] matchAction2Trans(CSG<Double> csg, int stationIndex, String pAAction, String pBAction) {
 		List<Object> actionsList = csg.getAvailableActions(stationIndex);
-		String action = "[" + pAAction + "]" + "[" + pBAction +"]";
+		String action = pAAction + pBAction;
 		double[] res = new double[csg.getNumStates()];
 		Arrays.fill(res, 0.0);
 
@@ -968,6 +1009,42 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 					res[tmpTrans.getKey()] = tmpTrans.getValue();
 				}
 			}
+		}
+
+		return res;
+	}
+
+
+	private double[] matchAction2TransCol(CSG<Double> csg, int stationIndex, String pAAction, String pBAction, List<Integer> colA, List<Integer> colB) {
+		List<Object> actionsList = csg.getAvailableActions(stationIndex);
+		String action = "";
+		for (int i = 0; i < colA.size(); i++) {
+			action += "[" + pAAction + colA.get(i) + "]";
+		}
+
+		for (int i = 0; i < colB.size(); i++) {
+			action += "[" + pBAction + colB.get(i) +"]";
+		}
+		double[] res = new double[csg.getNumStates()];
+		Arrays.fill(res, 0.0);
+
+		boolean flag = true;
+
+		for (int i = 0; i < actionsList.size(); i++) {
+			Object obj = actionsList.get(i);
+			if(obj instanceof String && obj.equals(action)) {
+				Iterator<Entry<Integer, Double>> tmp = csg.getTransitionsIterator(stationIndex, i);
+				while (tmp.hasNext()){
+					Map.Entry<Integer, Double> tmpTrans = tmp.next();
+					res[tmpTrans.getKey()] = tmpTrans.getValue();
+				}
+				flag = false;
+				break;
+			}
+		}
+
+		if (flag) {
+			int a = 0;
 		}
 
 		return res;
@@ -1007,7 +1084,6 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 		double[][] calValA = new double[actionNum][actionNum]; // [under PlayerA's action][Player B's action]
 
 		for (int i = 0; i < actionNum; i++) {
-
 			calValB[0][i] += matchAction2Reward(csg, rewards, 1, stateIndex, actionsPlayerA.get(0), actionsPlayerB.get(i));
 			calValB[1][i] += matchAction2Reward(csg, rewards, 1, stateIndex, actionsPlayerA.get(1), actionsPlayerB.get(i));
 
@@ -1046,26 +1122,37 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 	 *
 	 * @param csg
 	 * @param rewards
-	 * @param actionNum
 	 * @param stateIndex
 	 * @param beta
 	 * @param values
 	 * @return
 	 */
-	private double[] linearEquationSolverGurobi(CSG<Double> csg, List<CSGRewards<Double>> rewards, int actionNum, int stateIndex, double[] beta, double[][] values) {
-		List<String> actionsList = csg.getActions();
-		BitSet[] actionIndex = csg.getIndexes();
+	private double[] linearEquationSolverGurobi(CSG<Double> csg, List<Coalition> coalitions, List<CSGRewards<Double>> rewards, int stateIndex, double[] beta, double[][] values) {
+		List<Integer> colA = new ArrayList<>();
+		List<Integer> colB = new ArrayList<>();
+		List<String> c = csg.getPlayerNames();
 
-		List<String> actionsPlayerA = new ArrayList<>();
-		int[] indexA = actionIndex[0].stream().toArray();
-		for (int i = 0; i < indexA.length; i++) {
-			actionsPlayerA.add(actionsList.get(indexA[i]-1));
+		for (int i = 0; i < c.size(); i++) {
+			String tmp = c.get(i);
+			if(coalitions.get(0).toString().contains(tmp)){
+				colA.add(i);
+			} else {
+				colB.add(i);
+			}
 		}
-		List<String> actionsPlayerB = new ArrayList<>();
-		int[] indexB = actionIndex[1].stream().toArray();
-		for (int i = 0; i < indexB.length; i++) {
-			actionsPlayerB.add(actionsList.get(indexB[i]-1));
-		}
+
+		List<List<String>> tmpActionLists =  getStateActionList(csg, colA, colB, stateIndex);
+		boolean flag = false;
+		flag = true;
+
+		// Player A and B == coalition A and B
+		List<String> actionsPlayerA = tmpActionLists.get(0);
+		List<String> actionsPlayerB = tmpActionLists.get(1);
+
+
+		int actionNumA = actionsPlayerA.size();
+		int actionNumB = actionsPlayerB.size();
+
 		int numStates = csg.getNumStates();
 		// 0:f, 1:valueA, 2:valueB
 		double[] res = new double[3];
@@ -1076,61 +1163,127 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 			GRBModel model = new GRBModel(env);
 
 			// Create variables
-			GRBVar f= model.addVar(-1000, 1000, 0.0, GRB.CONTINUOUS, "f");
+			double largeConstant = 1E6;
+			GRBVar va = model.addVar(-1*largeConstant, largeConstant, 0.0, GRB.CONTINUOUS, "va");
+			GRBVar vb = model.addVar(-1*largeConstant, largeConstant, 0.0, GRB.CONTINUOUS, "vb");
+			List<GRBVar> aList = new ArrayList<>();
+			for (int i = 0; i < actionNumA; i++) {
+				String tmpName = "f" + (i+1);
+				GRBVar tmp = model.addVar(0.0, 1.0, 0.0, GRB.CONTINUOUS, tmpName);
+				aList.add(tmp);
+			}
 
-			// Set objective: maximize f
+			List<GRBVar> bList = new ArrayList<>();
+			for (int i = 0; i < actionNumB; i++) {
+				String tmpName = "b" + (i+1);
+				GRBVar tmp = model.addVar(0.0,1.0,0.0, GRB.BINARY, tmpName);
+				bList.add(tmp);
+			}
+
+			// Set objective: maximize VA
 			GRBLinExpr expr = new GRBLinExpr();
-			expr.addTerm(1.0, f);
+			expr.addTerm(1.0, va);
 			model.setObjective(expr, GRB.MAXIMIZE);
 
 			// Add constraints
-			List<GRBLinExpr> exprs = new ArrayList<>();
-			double[][] calValB = new double[actionNum][actionNum]; // [under PlayerA's action][Player B's action]
-			double[][] calValA = new double[actionNum][actionNum]; // [under PlayerA's action][Player B's action]
-
-			for (int i = 0; i < actionNum; i++) {
-				GRBLinExpr tmpExpr = new GRBLinExpr();
-
-				calValB[0][i] += matchAction2Reward(csg, rewards, 1, stateIndex, actionsPlayerA.get(0), actionsPlayerB.get(i));
-				calValB[1][i] += matchAction2Reward(csg, rewards, 1, stateIndex, actionsPlayerA.get(1), actionsPlayerB.get(i));
-
-				calValA[0][i] += matchAction2Reward(csg, rewards, 0, stateIndex, actionsPlayerA.get(0), actionsPlayerB.get(i));
-				calValA[1][i] += matchAction2Reward(csg, rewards, 0, stateIndex, actionsPlayerA.get(1), actionsPlayerB.get(i));
-
-				double[] tmpTrans1 = matchAction2Trans(csg, stateIndex, actionsPlayerA.get(0), actionsPlayerB.get(i));
-				double[] tmpTrans2 = matchAction2Trans(csg, stateIndex, actionsPlayerA.get(1), actionsPlayerB.get(i));
+			// define all exprs
+			List<GRBLinExpr> exprsA = new ArrayList<>();
+			List<GRBLinExpr> exprsB = new ArrayList<>();
+			double[][] calValB = new double[actionNumA][actionNumB]; // [under PlayerA's action][Player B's action]
+			double[][] calValA = new double[actionNumA][actionNumB]; // [under PlayerA's action][Player B's action]
 
 
-				for (int j = 0; j < numStates; j++) {
-					calValB[0][i] += beta[1] * tmpTrans1[j] * values[1][j];
-					calValB[1][i] += beta[1] * tmpTrans2[j] * values[1][j];
 
-					calValA[0][i] += beta[0] * tmpTrans1[j] * values[0][j];
-					calValA[1][i] += beta[0] * tmpTrans2[j] * values[0][j];
+			for (int i = 0; i < actionNumB; i++) {
+				double[][] tmpTrans = new double[actionNumA][numStates];
+
+				for (int j = 0; j < actionNumA; j++) {
+					if(flag) {
+						calValA[j][i] += rewards.get(0).getStateReward(stateIndex);
+						calValB[j][i] += rewards.get(1).getStateReward(stateIndex);
+					} else {
+						calValA[j][i] += matchAction2Reward(csg, rewards, 0, stateIndex, actionsPlayerA.get(j), actionsPlayerB.get(i));
+						calValB[j][i] += matchAction2Reward(csg, rewards, 1, stateIndex, actionsPlayerA.get(j), actionsPlayerB.get(i));
+					}
+
+					tmpTrans[j] = matchAction2Trans(csg, stateIndex, actionsPlayerA.get(j), actionsPlayerB.get(i));
 				}
 
-				tmpExpr.addTerm(calValB[0][i], f);
-				tmpExpr.addConstant(calValB[1][i]);
-				tmpExpr.addTerm(-1*calValB[1][i], f);
+				for (int j = 0; j < numStates; j++) {
+					for (int k = 0; k < actionNumA; k++) {
+						calValA[k][i] += beta[0] * tmpTrans[k][j] * values[0][j];
+						calValB[k][i] += beta[1] * tmpTrans[k][j] * values[1][j];
+					}
+				}
 
-				exprs.add(tmpExpr);
+				// add expression
+				GRBLinExpr tmpExprA = new GRBLinExpr();
+				GRBLinExpr tmpExprB = new GRBLinExpr();
+				for (int j = 0; j < actionNumA; j++) {
+					tmpExprA.addTerm(calValA[j][i], aList.get(j));
+					tmpExprB.addTerm(calValB[j][i], aList.get(j));
+				}
+
+				exprsA.add(tmpExprA);
+				exprsB.add(tmpExprB);
 			}
 
-			model.addConstr(exprs.get(0), GRB.LESS_EQUAL, exprs.get(1), "c0");
-			model.addConstr(exprs.get(1), GRB.LESS_EQUAL, exprs.get(0), "c1");
+			// add constr to VA: va <= exprsA + M(1-b)
+			for (int i = 0; i < actionNumB; i++) {
+				String tmpName = "ca" + i;
+				GRBLinExpr tmpExpr = exprsA.get(i);
+				tmpExpr.addConstant(largeConstant);
+				tmpExpr.addTerm(-1*largeConstant, bList.get(i));
+				model.addConstr(va, GRB.LESS_EQUAL, tmpExpr, tmpName);
+			}
+
+			// add constr to VB: 0 <= vb - exprsB <= M(1-b)
+			for (int i = 0; i < actionNumB; i++) {
+				String tmpName1 = "cb1" + i;
+				GRBLinExpr tmpExpr1 = new GRBLinExpr();
+				tmpExpr1.addTerm(1, vb);
+				tmpExpr1.multAdd(-1, exprsB.get(i));
+				model.addConstr(0, GRB.LESS_EQUAL, tmpExpr1, tmpName1);
+
+				String tmpName2 = "cb2" + i;
+				GRBLinExpr tmpExpr2 = new GRBLinExpr();
+				tmpExpr2.addConstant(largeConstant);
+				tmpExpr2.addTerm(-1*largeConstant, bList.get(i));
+				model.addConstr(tmpExpr1, GRB.LESS_EQUAL, tmpExpr2, tmpName2);
+			}
+
+			// add constr \sum f = 1
+			GRBLinExpr constrSumA = new GRBLinExpr();
+			for (int i = 0; i < actionNumA; i++) {
+				constrSumA.addTerm(1, aList.get(i));
+			}
+			model.addConstr(constrSumA, GRB.EQUAL, 1, "sumA");
+
+			// add constr \sum b = 1, where b is a binary variable
+			GRBLinExpr constrSumB = new GRBLinExpr();
+			for (int i = 0; i < actionNumB; i++) {
+				constrSumB.addTerm(1, bList.get(i));
+			}
+			model.addConstr(constrSumB, GRB.EQUAL, 1, "sumB");
 
 			// Optimize model
 			model.optimize();
 
 			// Get results
-			double resF = f.get(GRB.DoubleAttr.X);
-			double valueB = resF * calValB[0][0] + (1-resF) * calValB[1][0];
-			double valueA1 = resF * calValA[0][0] + (1-resF) * calValA[1][0];
-			double valueA2 = resF * calValA[0][1] + (1-resF) * calValA[1][1];
+			double vbRes = vb.get(GRB.DoubleAttr.X);
+			double vaRes = va.get(GRB.DoubleAttr.X);
+			double[] aListRes = new double[actionNumA];
+			for (int i = 0; i < actionNumA; i++) {
+				aListRes[i] = aList.get(i).get(GRB.DoubleAttr.X);
+			}
+			double[] bListRes = new double[actionNumB];
+			for (int i = 0; i < actionNumB; i++) {
+				bListRes[i] = bList.get(i).get(GRB.DoubleAttr.X);
+			}
 
-			res[0] = resF;
-			res[1] = valueA1 > valueA2? valueA1 : valueA2;
-			res[2] = valueB;
+			res[0] = aListRes[0];
+			res[1] = vaRes;
+			res[2] = vbRes;
 
 			// Dispose of model and environment
 			model.dispose();
@@ -1139,6 +1292,165 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 		} catch (GRBException e) {
 			throw new RuntimeException(e);
 		}
+
+		return res;
+	}
+
+	/**
+	 *
+	 * @param csg
+	 * @param rewards
+	 * @param stateIndex
+	 * @param beta
+	 * @param values
+	 * @return
+	 */
+
+	private double[] linearEquationSolverMultiGurobi(CSG<Double> csg, List<Coalition> coalitions, List<CSGRewards<Double>> rewards, int stateIndex, double[] beta, double[][] values) {
+		List<Integer> colA = new ArrayList<>();
+		List<Integer> colB = new ArrayList<>();
+		List<String> c = csg.getPlayerNames();
+
+		for (int i = 0; i < c.size(); i++) {
+			String tmp = c.get(i);
+			if(coalitions.get(0).toString().contains(tmp)){
+				colA.add(i+1);
+			} else {
+				colB.add(i+1);
+			}
+		}
+
+		List<List<String>> tmpActionLists =  getStateActionList(csg, colA, colB, stateIndex);
+		boolean flag = false;
+				flag = true;
+
+		List<String> actionsPlayerA = tmpActionLists.get(0);
+		List<String> actionsPlayerB = tmpActionLists.get(1);
+
+		int actionNumA = actionsPlayerA.size();
+		int actionNumB = actionsPlayerB.size();
+
+		int numStates = csg.getNumStates();
+		// 0:f, 1:valueA, 2:valueB
+		double[] res = new double[3];
+		double[][] calValB = new double[actionNumA][actionNumB]; // [under PlayerA's action][Player B's action]
+		double[][] calValA = new double[actionNumA][actionNumB]; // [under PlayerA's action][Player B's action]
+
+		for (int i = 0; i < actionNumB; i++) {
+			double[][] tmpTrans = new double[actionNumA][numStates];
+
+			for (int j = 0; j < actionNumA; j++) {
+				if(flag) {
+					calValA[j][i] += rewards.get(0).getStateReward(stateIndex);
+					calValB[j][i] += rewards.get(1).getStateReward(stateIndex);
+				} else {
+					calValA[j][i] += matchAction2Reward(csg, rewards, 0, stateIndex, actionsPlayerA.get(j), actionsPlayerB.get(i));
+					calValB[j][i] += matchAction2Reward(csg, rewards, 1, stateIndex, actionsPlayerA.get(j), actionsPlayerB.get(i));
+				}
+
+				tmpTrans[j] = matchAction2Trans(csg, stateIndex, actionsPlayerA.get(j), actionsPlayerB.get(i));
+			}
+
+			for (int j = 0; j < numStates; j++) {
+				for (int k = 0; k < actionNumA; k++) {
+					calValA[k][i] += beta[0] * tmpTrans[k][j] * values[0][j];
+					calValB[k][i] += beta[1] * tmpTrans[k][j] * values[1][j];
+				}
+			}
+
+		}
+
+		List<Double> resA = new ArrayList<>();
+		List<Double> resB = new ArrayList<>();
+		for (int i = 0; i < actionNumB; i++) {
+			try {
+				GRBEnv env = new GRBEnv("gurobi.log");
+				GRBModel model = new GRBModel(env);
+
+				// Create variables
+				List<GRBVar> aList = new ArrayList<>();
+				for (int k = 0; k < actionNumA; k++) {
+					String tmpName = "f" + (k+1);
+					GRBVar tmp = model.addVar(0.0, 1.0, 0.0, GRB.CONTINUOUS, tmpName);
+					aList.add(tmp);
+				}
+
+				// Set objective: maximize VA
+				GRBLinExpr exprA = new GRBLinExpr();
+				GRBLinExpr exprB = new GRBLinExpr();
+				for (int j = 0; j < actionNumA; j++) {
+					exprA.addTerm(calValA[j][i], aList.get(j));
+					exprB.addTerm(calValB[j][i], aList.get(j));
+				}
+				model.setObjective(exprA, GRB.MAXIMIZE);
+
+				// Add constraints
+				// define all exprs
+				List<GRBLinExpr> exprsA = new ArrayList<>();
+
+				for (int k = 0; k < actionNumB; k++) {
+					// add expression
+					GRBLinExpr tmpExprB = new GRBLinExpr();
+					for (int j = 0; j < actionNumA; j++) {
+						tmpExprB.addTerm(calValB[j][k], aList.get(j));
+					}
+					exprsA.add(tmpExprB);
+				}
+
+				// vb >= vb'
+				for (int k = 0; k < actionNumB; k++) {
+					String tmpName = "ca" + k;
+					GRBLinExpr tmpExpr = exprsA.get(k);
+					model.addConstr(exprB, GRB.GREATER_EQUAL, tmpExpr, tmpName);
+				}
+
+				// \sum f = 1
+				GRBLinExpr constrSumA = new GRBLinExpr();
+				for (int k = 0; k < actionNumA; k++) {
+					constrSumA.addTerm(1, aList.get(k));
+				}
+				model.addConstr(constrSumA, GRB.EQUAL, 1, "sumA");
+
+				// Optimize model
+				model.optimize();
+
+				// Get results
+				double[] aListRes = new double[actionNumA];
+				for (int k = 0; k < actionNumA; k++) {
+					aListRes[k] = aList.get(k).get(GRB.DoubleAttr.X);
+				}
+
+				double tmpResA = 0;
+				double tmpResB = 0;
+				for (int j = 0; j < actionNumA; j++) {
+					tmpResA += calValA[j][i] * aListRes[j];
+					tmpResB += calValB[j][i] * aListRes[j];
+				}
+				resA.add(tmpResA);
+				resB.add(tmpResB);
+
+				// Dispose of model and environment
+				model.dispose();
+				env.dispose();
+
+			} catch (GRBException e) {
+
+			}
+		}
+
+		// find the one with max value
+		res[0] = 0;
+		int index = 0;
+		double tmpMax = resA.get(0);
+		for (int i = 1; i < resA.size(); i++) {
+			double tmp = resA.get(i);
+			if (tmp > tmpMax) {
+				tmpMax = tmp;
+				index = i;
+			}
+		}
+		res[1] = tmpMax;
+		res[2] = resB.get(index);
 
 		return res;
 	}
@@ -1287,29 +1599,32 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 	 * Solving stackelberg equilbria.
 	 *
 	 * @param csg
-	 * @param coalitions
 	 * @param rewards
 	 * @param beta
 	 * @return
 	 */
-	private double[] stackelbergSolver(CSG<Double> csg, List<CSGRewards<Double>> rewards, double[] beta) {
-		// res[0] -> strategies/f, res[1] -> valueA, res[2] -> valueB
-		double[] res = new double[3];
+	private double[] stackelbergSolver(CSG<Double> csg, List<Coalition> coalitions, List<CSGRewards<Double>> rewards, double[] beta, int[] bounds, boolean flagMLP) {
+		// res[0] -> sum, res[1] -> valueA, res[2] -> valueB, res[3] -> time
+		double[] res = new double[4];
 
-		// max number of iteration - hard code right now
-		int maxiter = 250;
+		// max number of iteration
+		int maxiter = bounds[0]; // we can only get all states' results at same time, so all states will have the same iteration number.
 		int numStates = csg.getNumStates();
-		int actionNum = 2; // hard code for now
 
 		// value iteration: only consider two actions for each player right now
-		double[][] values = new double[numPlayers][numStates];
+		double[][] values = new double[2][numStates];
 		double[][] stateRes = new double[numStates][3]; // [2] --> 0:f, 1:valueA, 2:valueB
+		long timePrecomp = System.currentTimeMillis();
 		for (int i = 0; i < maxiter; i++) {
 			for (int j = 0; j < numStates; j++) {
 				// implemented two ways to solving linear equations, one is pure coding, another one is based on Gurobi.
-//				stateRes[j] = linearEquationSolver(csg, rewards, actionNum, j, beta, values);
-//				stateRes[j] = linearEquationSolverGurobi(csg, rewards, actionNum, j, beta, values);
-				stateRes[j] = linearEquationSolverPro(csg, rewards, j, beta, values);
+//				stateRes[j] = linearEquationSolver(csg, rewards, 2, j, beta, values);
+				if (flagMLP){
+					stateRes[j] = linearEquationSolverMultiGurobi(csg, coalitions, rewards, j, beta, values);
+				} else {
+					stateRes[j] = linearEquationSolverGurobi(csg, coalitions, rewards, j, beta, values);
+				}
+				// stateRes[j] = linearEquationSolverPro(csg, rewards, j, beta, values);
 			}
 
 
@@ -1317,13 +1632,17 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 				values[0][j] = stateRes[j][1];
 				values[1][j] = stateRes[j][2];
 			}
-
-			double f = stateRes[0][0];
-			double va = stateRes[0][1];
-			double vb = stateRes[0][2];
-			int a = 0;
 		}
+		timePrecomp = System.currentTimeMillis() - timePrecomp;
+		double timeAll = timePrecomp * 1.00 / 1000 ;
 
+		int resIndex = csg.getFirstInitialState();
+		double result = stateRes[resIndex][1] + stateRes[resIndex][2];
+
+		res[0] = result;
+		res[1] = stateRes[resIndex][1];
+		res[2] = stateRes[resIndex][2];
+		res[3] = timeAll;
 		return res;
 	}
 
@@ -1353,8 +1672,8 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 		double[][] strategies = new double[csg.getNumStates()][coalitions.size()];
 		double[][] values = new double[csg.getNumStates()][coalitions.size()];
 
-		// discount value - hard code right now
-		double[] beta = {0.9, 0.9};
+		// discount value
+		double[] beta = {1, 1};
 
 		buildCoalitions(csg, coalitions);
 		findMaxRowsCols(csg);
@@ -1363,7 +1682,26 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 		dominating = new BitSet[numCoalitions];
 
 		// [0] -> strategies/f, [1] -> valueA, [2] -> valueB
-		double[] tmpRes = stackelbergSolver(csg, rewards, beta);
+		double[] tmpRes1 = stackelbergSolver(csg, coalitions, rewards, beta, bounds, false);
+		double[] tmpRes2 = stackelbergSolver(csg, coalitions, rewards, beta, bounds, true);
+
+		int total = 15;
+
+		double[] sumRes = new double[total];
+		double[] leaderRes = new double[total];
+		double[] followerRes = new double[total];
+		double[] time = new double[total];
+
+		// false: using MINLP to solving Stackelberg; true: using Multi-LP
+		boolean flagMLP = true;
+		for (int i = 1; i <total+1; i++) {
+			int[] tmpBounds = {i,i};
+			double[] tmpRes = stackelbergSolver(csg, coalitions, rewards, beta, tmpBounds, flagMLP);
+			sumRes[i-1] = tmpRes[0];
+			leaderRes[i-1] = tmpRes[1];
+			followerRes[i-1] = tmpRes[2];
+			time[i-1] = tmpRes[3];
+		}
 
 		// need to trans to ModelCheckerResult
 		return res;
@@ -1386,249 +1724,255 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 	 * @throws PrismException
 	 */
 	public ModelCheckerResult computeBoundedEquilibria(CSG<Double> csg, List<Coalition> coalitions, List<CSGRewards<Double>> rewards, List<ExpressionTemporal> exprs, BitSet[] targets, BitSet[] remain, int[] bounds, int eqType, int crit, boolean min) throws PrismException {
-		return computeBoundedStackelbergEquilibria(csg, coalitions, rewards, exprs, targets, remain, bounds, eqType, crit, min);
-//		if (genStrat) {
-//			throw new PrismException("Strategy synthesis for bounded properties is not supported yet.");
-//		}
-//		Iterator<Entry<Integer, Double>> whatever = csg.getTransitionsIterator(0,0);
-//		Map.Entry<Integer, Double> what1 = whatever.next();
-//		double rewardsList = rewards.get(0).getTransitionReward(0,0);
-//		int a  = 1;
-//		ModelCheckerResult res = new ModelCheckerResult();
-//		List<CSGRewards<Double>> newRewards = null;
-//		BitSet[] only = new BitSet[coalitions.size()];
-//		BitSet[] phi1 = new BitSet[3];
-//		BitSet cpy =  new BitSet();
-//		double[][] sol = new double[coalitions.size()][csg.getNumStates()];
-//		double[][] tmp = new double[coalitions.size()][csg.getNumStates()];
-//		double[][] val = new double[coalitions.size()][csg.getNumStates()];
-//		double[] eq;
-//		double[] r = new double[csg.getNumStates()];
-//		int i, j, n1, n2, k, s;
-//		boolean rew;
-//		long currentTime, timePrecomp;
-//
-//		rew = rewards != null;
-//
-//		buildCoalitions(csg, coalitions);
-//		findMaxRowsCols(csg);
-//		mainLog.println("Starting bounded equilibria computation (solver=" + setSolver(eqType) + ")...");
-//		dominated = new BitSet[numCoalitions];
-//		dominating = new BitSet[numCoalitions];
-//
-//		// Case next
-//		if ((exprs.get(0).getOperator() == ExpressionTemporal.P_X) || (exprs.get(1).getOperator() == ExpressionTemporal.P_X)) {
-//			for (i = 0; i < 2; i++) {
-//				if (exprs.get(i).getOperator() == ExpressionTemporal.P_X) {
-//					for (s = 0; s < csg.getNumStates(); s++) {
-//						sol[i][s] = targets[i].get(s)? 1.0 : 0.0;
-//					}
-//				}
-//				else {
-//					sol[i] = mdpmc.computeBoundedUntilProbs(csg, remain[i], targets[i], bounds[i]-1, min).soln;
-//				}
-//			}
-//			for (s = 0; s < csg.getNumStates(); s++) {
-//				eq = stepEquilibriaTwoPlayer(csg, null, null, null, sol, s, eqType, crit, rew, min);
-//				tmp[0][s] = eq[1];
-//				tmp[1][s] = eq[2];
-//				r[s] = eq[1] + eq[2];
-//			}
-//			mainLog.println("\nCoalition results (initial state): (" + tmp[0][csg.getFirstInitialState()] + "," + tmp[1][csg.getFirstInitialState()] + ")");
-//			res.soln = r;
-//			res.numIters = 1;
-//			return res;
-//		}
-//
-//		if (!rew) {
-//			for (i = 0; i < 2; i++) {
-//				phi1[i] = new BitSet();
-//				if (remain[i] == null)
-//					phi1[i].set(0, csg.getNumStates());
-//			else
-//				phi1[i].or(remain[i]);
-//			}
-//		}
-//
-//		if (targets == null) {
-//			targets = new BitSet[coalitions.size()];
-//			for (i = 0; i < coalitions.size(); i++) { // Case for cumulative rewards
-//				targets[i] = new BitSet();
-//			}
-//		}
-//
-//		for (i = 0; i < coalitions.size(); i++) {
-//			only[i] = new BitSet();
-//			only[i].or(targets[i]);
-//			for (j = 0; j < coalitions.size(); j++) {
-//				if (i != j)
-//					only[i].andNot(targets[j]);
-//			}
-//		}
-//
-//		k = Math.abs(bounds[0] - bounds[1]);
-//		n1 = (bounds[0] > bounds[1])? k : 0;
-//		n2 = (bounds[1] > bounds[0])? k : 0;
-//
-//		if (!rew) {
-//			phi1[2] = new BitSet();
-//			phi1[2].or(phi1[0]);
-//			phi1[2].and(phi1[1]); // intersection of phi1(1) and phi1(2)
-//			cpy.clear();
-//			cpy.or(phi1[0]);
-//			phi1[0].andNot(phi1[1]); // phi1(1) minus phi1(2)
-//			phi1[1].andNot(cpy); // phi1(2) minus phi1(1)
-//			cpy.clear();
-//		}
-//		else {
-//			newRewards = new ArrayList<>();
-//		}
-//
-//		//System.out.println("for bounds[0]");
-//		//double[][] pre0 = computeBoundedReachProbs(csg, targets[0], bounds[0]);
-//		//System.out.println("for bounds[1]");
-//		//double[][] pre1 = computeBoundedReachProbs(csg, targets[1], bounds[1]);
-//
-//		timePrecomp = System.currentTimeMillis();
-//		if (rew) {
-//			if (bounds[0] > bounds[1]) {
-//				if (exprs.get(0).getOperator() == ExpressionTemporal.R_C)
-//					val[0] = mdpmc.computeCumulativeRewards(csg, rewards.get(0), n1, min).soln;
-//				else
-//					val[0] = mdpmc.computeInstantaneousRewards(csg, rewards.get(0), n1, min).soln;
-//			}
-//			if (bounds[1] > bounds[0]) {
-//				if (exprs.get(1).getOperator() == ExpressionTemporal.R_C)
-//					val[1] = mdpmc.computeCumulativeRewards(csg, rewards.get(1), n2, min).soln;
-//				else
-//					val[1] = mdpmc.computeInstantaneousRewards(csg, rewards.get(1), n2, min).soln;
-//			}
-//		}
-//		timePrecomp = System.currentTimeMillis() - timePrecomp;
-//
-//		while (true) {
-//			currentTime = System.currentTimeMillis();
-//			if (!rew) {
-//				if (n1 > 0) {
-//					if (remain[0] == null)
-//						val[0] = mdpmc.computeBoundedReachProbs(csg, targets[0], n1, min).soln;
-//					else
-//						val[0] = mdpmc.computeBoundedUntilProbs(csg, remain[0], targets[0], n1, min).soln;
-//				}
-//				if (n2 > 0) {
-//					if (remain[1] == null)
-//						val[1] = mdpmc.computeBoundedReachProbs(csg, targets[1], n2, min).soln;
-//					else
-//						val[1] = mdpmc.computeBoundedUntilProbs(csg, remain[1], targets[1], n2, min).soln;
-//				}
-//			}
-//			timePrecomp += System.currentTimeMillis() - currentTime;
-//			if (Math.min(n1, n2) > 0) {
-//				for (s = 0; s < csg.getNumStates(); s++) {
-//					if (rew) {
-//						newRewards.clear();
-//						for (i = 0; i < 2; i++) {
-//							newRewards.add(i, rewards.get(i));
-//							if (!(exprs.get(i).getOperator() == ExpressionTemporal.R_C))
-//								newRewards.set(i, null);
-//						}
-//						eq = stepEquilibriaTwoPlayer(csg, newRewards, null, null, sol, s, eqType, crit, rew, min);
-//						tmp[0][s] = eq[1];
-//						tmp[1][s] = eq[2];
-//					}
-//					else {
-//						if (targets[0].get(s) && targets[1].get(s)) {
-//							tmp[0][s] = 1.0;
-//							tmp[1][s] = 1.0;
-//						}
-//						else if (only[0].get(s)) {
-//							tmp[0][s] = 1.0;
-//							tmp[1][s] = val[1][s];
-//						}
-//						else if (only[1].get(s)) {
-//							tmp[0][s] = val[0][s];
-//							tmp[1][s] = 1.0;
-//						}
-//						else if(phi1[0].get(s)) {
-//							tmp[0][s] = val[0][s];
-//							tmp[1][s] = 0.0;
-//						}
-//						else if(phi1[1].get(s)) {
-//							tmp[0][s] = 0.0;
-//							tmp[1][s] = val[1][s];
-//						}
-//						else if(!phi1[2].get(s)) {
-//							tmp[0][s] = 0.0;
-//							tmp[1][s] = 0.0;
-//						}
-//						else {
-//							eq = stepEquilibriaTwoPlayer(csg, null, null, null, sol, s, eqType, crit, rew, min);
-//							tmp[0][s] = eq[1];
-//							tmp[1][s] = eq[2];
-//						}
-//					}
-//				}
-//				for (s = 0; s < csg.getNumStates(); s++) {
-//					sol[0][s] = tmp[0][s];
-//					sol[1][s] = tmp[1][s];
-//					r[s] = sol[0][s] + sol[1][s];
-//				}
-//				/*
-//				String sols;
-//				sols = "(";
-//				for (p = 0; p < numCoalitions; p++) {
-//					if (p < numCoalitions - 1)
-//						sols += sol[p][csg.getFirstInitialState()] + ",";
-//					else
-//						sols += sol[p][csg.getFirstInitialState()] + ")";
-//				}
-//				mainLog.println(k + ": " + sols);
-//				*/
-//			}
-//			else {
-//				for (s = 0; s < csg.getNumStates(); s++) {
-//					if (rew) {
-//						if (n1 == 0 && n2 == 0) {
-//							sol[0][s] = (exprs.get(0).getOperator() == ExpressionTemporal.R_C)? 0.0 : rewards.get(0).getStateReward(s);
-//							sol[1][s] = (exprs.get(1).getOperator() == ExpressionTemporal.R_C)? 0.0 : rewards.get(1).getStateReward(s);
-//						}
-//						else if (n1 == 0) {
-//							sol[0][s] = (exprs.get(0).getOperator() == ExpressionTemporal.R_C)? 0.0 : rewards.get(0).getStateReward(s);
-//							sol[1][s] = val[1][s];
-//						}
-//						else {
-//							sol[0][s] = val[0][s];
-//							sol[1][s] = (exprs.get(1).getOperator() == ExpressionTemporal.R_C)? 0.0 : rewards.get(1).getStateReward(s);
-//						}
-//					}
-//					else {
-//						if (n1 == 0 && n2 == 0) {
-//							sol[0][s] = targets[0].get(s)? 1.0 : 0.0;
-//							sol[1][s] = targets[1].get(s)? 1.0 : 0.0;
-//						}
-//						else if (n1 == 0) {
-//							sol[0][s] = targets[0].get(s)? 1.0 : 0.0;
-//							sol[1][s] = targets[1].get(s)? 1.0 : val[1][s];
-//						}
-//						else {
-//							sol[0][s] = targets[0].get(s)? 1.0 : val[0][s];
-//							sol[1][s] = targets[1].get(s)? 1.0 : 0.0;
-//						}
-//					}
-//				}
-//			}
-//			if (k == Math.max(bounds[0], bounds[1])) {
-//				break;
-//			}
-//			k++;
-//			n1 = Math.min(n1 + 1, bounds[0]);
-//			n2 = Math.min(n2 + 1, bounds[1]);
-//		}
-//		mainLog.println("\nPrecomputation took " + timePrecomp / 1000.0 + " seconds.");
-//		mainLog.println("Coalition results (initial state): (" + sol[0][csg.getFirstInitialState()] + "," + sol[1][csg.getFirstInitialState()] + ")");
-//		res.soln = r;
-//		res.numIters = k;
-//		return res;
+		boolean a = true;
+//		a = false;
+		if (a) {
+			return computeBoundedStackelbergEquilibria(csg, coalitions, rewards, exprs, targets, remain, bounds, eqType, crit, min);
+		}
+
+		CSGRewards<Double> size = rewards.get(0);
+
+		if (genStrat) {
+			throw new PrismException("Strategy synthesis for bounded properties is not supported yet.");
+		}
+		Iterator<Entry<Integer, Double>> whatever = csg.getTransitionsIterator(0,0);
+		Map.Entry<Integer, Double> what1 = whatever.next();
+		double rewardsList = rewards.get(0).getTransitionReward(0,0);
+		ModelCheckerResult res = new ModelCheckerResult();
+		List<CSGRewards<Double>> newRewards = null;
+		BitSet[] only = new BitSet[coalitions.size()];
+		BitSet[] phi1 = new BitSet[3];
+		BitSet cpy =  new BitSet();
+		double[][] sol = new double[coalitions.size()][csg.getNumStates()];
+		double[][] tmp = new double[coalitions.size()][csg.getNumStates()];
+		double[][] val = new double[coalitions.size()][csg.getNumStates()];
+		double[] eq;
+		double[] r = new double[csg.getNumStates()];
+		int i, j, n1, n2, k, s;
+		boolean rew;
+		long currentTime, timePrecomp;
+
+		rew = rewards != null;
+
+		buildCoalitions(csg, coalitions);
+		findMaxRowsCols(csg);
+		mainLog.println("Starting bounded equilibria computation (solver=" + setSolver(eqType) + ")...");
+		dominated = new BitSet[numCoalitions];
+		dominating = new BitSet[numCoalitions];
+
+		// Case next
+		if ((exprs.get(0).getOperator() == ExpressionTemporal.P_X) || (exprs.get(1).getOperator() == ExpressionTemporal.P_X)) {
+			for (i = 0; i < 2; i++) {
+				if (exprs.get(i).getOperator() == ExpressionTemporal.P_X) {
+					for (s = 0; s < csg.getNumStates(); s++) {
+						sol[i][s] = targets[i].get(s)? 1.0 : 0.0;
+					}
+				}
+				else {
+					sol[i] = mdpmc.computeBoundedUntilProbs(csg, remain[i], targets[i], bounds[i]-1, min).soln;
+				}
+			}
+			for (s = 0; s < csg.getNumStates(); s++) {
+				eq = stepEquilibriaTwoPlayer(csg, null, null, null, sol, s, eqType, crit, rew, min);
+				tmp[0][s] = eq[1];
+				tmp[1][s] = eq[2];
+				r[s] = eq[1] + eq[2];
+			}
+			mainLog.println("\nCoalition results (initial state): (" + tmp[0][csg.getFirstInitialState()] + "," + tmp[1][csg.getFirstInitialState()] + ")");
+			res.soln = r;
+			res.numIters = 1;
+			return res;
+		}
+
+		if (!rew) {
+			for (i = 0; i < 2; i++) {
+				phi1[i] = new BitSet();
+				if (remain[i] == null)
+					phi1[i].set(0, csg.getNumStates());
+			else
+				phi1[i].or(remain[i]);
+			}
+		}
+
+		if (targets == null) {
+			targets = new BitSet[coalitions.size()];
+			for (i = 0; i < coalitions.size(); i++) { // Case for cumulative rewards
+				targets[i] = new BitSet();
+			}
+		}
+
+		for (i = 0; i < coalitions.size(); i++) {
+			only[i] = new BitSet();
+			only[i].or(targets[i]);
+			for (j = 0; j < coalitions.size(); j++) {
+				if (i != j)
+					only[i].andNot(targets[j]);
+			}
+		}
+
+		k = Math.abs(bounds[0] - bounds[1]);
+		n1 = (bounds[0] > bounds[1])? k : 0;
+		n2 = (bounds[1] > bounds[0])? k : 0;
+
+		if (!rew) {
+			phi1[2] = new BitSet();
+			phi1[2].or(phi1[0]);
+			phi1[2].and(phi1[1]); // intersection of phi1(1) and phi1(2)
+			cpy.clear();
+			cpy.or(phi1[0]);
+			phi1[0].andNot(phi1[1]); // phi1(1) minus phi1(2)
+			phi1[1].andNot(cpy); // phi1(2) minus phi1(1)
+			cpy.clear();
+		}
+		else {
+			newRewards = new ArrayList<>();
+		}
+
+		//System.out.println("for bounds[0]");
+		//double[][] pre0 = computeBoundedReachProbs(csg, targets[0], bounds[0]);
+		//System.out.println("for bounds[1]");
+		//double[][] pre1 = computeBoundedReachProbs(csg, targets[1], bounds[1]);
+
+		timePrecomp = System.currentTimeMillis();
+		if (rew) {
+			if (bounds[0] > bounds[1]) {
+				if (exprs.get(0).getOperator() == ExpressionTemporal.R_C)
+					val[0] = mdpmc.computeCumulativeRewards(csg, rewards.get(0), n1, min).soln;
+				else
+					val[0] = mdpmc.computeInstantaneousRewards(csg, rewards.get(0), n1, min).soln;
+			}
+			if (bounds[1] > bounds[0]) {
+				if (exprs.get(1).getOperator() == ExpressionTemporal.R_C)
+					val[1] = mdpmc.computeCumulativeRewards(csg, rewards.get(1), n2, min).soln;
+				else
+					val[1] = mdpmc.computeInstantaneousRewards(csg, rewards.get(1), n2, min).soln;
+			}
+		}
+		timePrecomp = System.currentTimeMillis() - timePrecomp;
+
+		while (true) {
+			currentTime = System.currentTimeMillis();
+			if (!rew) {
+				if (n1 > 0) {
+					if (remain[0] == null)
+						val[0] = mdpmc.computeBoundedReachProbs(csg, targets[0], n1, min).soln;
+					else
+						val[0] = mdpmc.computeBoundedUntilProbs(csg, remain[0], targets[0], n1, min).soln;
+				}
+				if (n2 > 0) {
+					if (remain[1] == null)
+						val[1] = mdpmc.computeBoundedReachProbs(csg, targets[1], n2, min).soln;
+					else
+						val[1] = mdpmc.computeBoundedUntilProbs(csg, remain[1], targets[1], n2, min).soln;
+				}
+			}
+			timePrecomp += System.currentTimeMillis() - currentTime;
+			if (Math.min(n1, n2) > 0) {
+				for (s = 0; s < csg.getNumStates(); s++) {
+					if (rew) {
+						newRewards.clear();
+						for (i = 0; i < 2; i++) {
+							newRewards.add(i, rewards.get(i));
+							if (!(exprs.get(i).getOperator() == ExpressionTemporal.R_C))
+								newRewards.set(i, null);
+						}
+						eq = stepEquilibriaTwoPlayer(csg, newRewards, null, null, sol, s, eqType, crit, rew, min);
+						tmp[0][s] = eq[1];
+						tmp[1][s] = eq[2];
+					}
+					else {
+						if (targets[0].get(s) && targets[1].get(s)) {
+							tmp[0][s] = 1.0;
+							tmp[1][s] = 1.0;
+						}
+						else if (only[0].get(s)) {
+							tmp[0][s] = 1.0;
+							tmp[1][s] = val[1][s];
+						}
+						else if (only[1].get(s)) {
+							tmp[0][s] = val[0][s];
+							tmp[1][s] = 1.0;
+						}
+						else if(phi1[0].get(s)) {
+							tmp[0][s] = val[0][s];
+							tmp[1][s] = 0.0;
+						}
+						else if(phi1[1].get(s)) {
+							tmp[0][s] = 0.0;
+							tmp[1][s] = val[1][s];
+						}
+						else if(!phi1[2].get(s)) {
+							tmp[0][s] = 0.0;
+							tmp[1][s] = 0.0;
+						}
+						else {
+							eq = stepEquilibriaTwoPlayer(csg, null, null, null, sol, s, eqType, crit, rew, min);
+							tmp[0][s] = eq[1];
+							tmp[1][s] = eq[2];
+						}
+					}
+				}
+				for (s = 0; s < csg.getNumStates(); s++) {
+					sol[0][s] = tmp[0][s];
+					sol[1][s] = tmp[1][s];
+					r[s] = sol[0][s] + sol[1][s];
+				}
+				/*
+				String sols;
+				sols = "(";
+				for (p = 0; p < numCoalitions; p++) {
+					if (p < numCoalitions - 1)
+						sols += sol[p][csg.getFirstInitialState()] + ",";
+					else
+						sols += sol[p][csg.getFirstInitialState()] + ")";
+				}
+				mainLog.println(k + ": " + sols);
+				*/
+			}
+			else {
+				for (s = 0; s < csg.getNumStates(); s++) {
+					if (rew) {
+						if (n1 == 0 && n2 == 0) {
+							sol[0][s] = (exprs.get(0).getOperator() == ExpressionTemporal.R_C)? 0.0 : rewards.get(0).getStateReward(s);
+							sol[1][s] = (exprs.get(1).getOperator() == ExpressionTemporal.R_C)? 0.0 : rewards.get(1).getStateReward(s);
+						}
+						else if (n1 == 0) {
+							sol[0][s] = (exprs.get(0).getOperator() == ExpressionTemporal.R_C)? 0.0 : rewards.get(0).getStateReward(s);
+							sol[1][s] = val[1][s];
+						}
+						else {
+							sol[0][s] = val[0][s];
+							sol[1][s] = (exprs.get(1).getOperator() == ExpressionTemporal.R_C)? 0.0 : rewards.get(1).getStateReward(s);
+						}
+					}
+					else {
+						if (n1 == 0 && n2 == 0) {
+							sol[0][s] = targets[0].get(s)? 1.0 : 0.0;
+							sol[1][s] = targets[1].get(s)? 1.0 : 0.0;
+						}
+						else if (n1 == 0) {
+							sol[0][s] = targets[0].get(s)? 1.0 : 0.0;
+							sol[1][s] = targets[1].get(s)? 1.0 : val[1][s];
+						}
+						else {
+							sol[0][s] = targets[0].get(s)? 1.0 : val[0][s];
+							sol[1][s] = targets[1].get(s)? 1.0 : 0.0;
+						}
+					}
+				}
+			}
+			if (k == Math.max(bounds[0], bounds[1])) {
+				break;
+			}
+			k++;
+			n1 = Math.min(n1 + 1, bounds[0]);
+			n2 = Math.min(n2 + 1, bounds[1]);
+		}
+		mainLog.println("\nPrecomputation took " + timePrecomp / 1000.0 + " seconds.");
+		mainLog.println("Coalition results (initial state): (" + sol[0][csg.getFirstInitialState()] + "," + sol[1][csg.getFirstInitialState()] + ")");
+		res.soln = r;
+		res.numIters = k;
+		return res;
 	}
 
 	/**

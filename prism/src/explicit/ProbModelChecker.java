@@ -804,7 +804,7 @@ public class ProbModelChecker extends NonProbModelChecker
 		if (coalitions.size() == 1) {
 			throw new PrismNotSupportedException("Equilibria-based properties require at least two coalitions");	
 		}
-		else if (coalitions.size() == 2) {
+		else if (coalitions.size() >= 2) {
 			if (unbounded.cardinality() == formulae.size()) {
 				if (rew) {
 					res = ((CSGModelChecker) this).computeRewReachEquilibria((CSG<Double>) model, coalitions, rewards, targets, eqType, crit, min);

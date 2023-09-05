@@ -3,3 +3,8 @@ const int k; // time bound
 // each player wants to maximise the expected number of messages sent in k steps
 // (with players 2 and 3 forming a coalition)
 <<p1:p2,p3>>max=? (R{"r1"}[C<=k] + R{"r23"}[C<=k])
+
+
+// each player wants to maximise the expected number of messages sent in k steps
+// (players act alone)
+<<p1:p2:p3>>max=? (R{"r1"}[C<=k] + R{"r2"}[C<=k] + R{"r3"}[C<=k])

@@ -12,8 +12,8 @@ player p3 mac3 endplayer
 
 const int emax; // energy bound
 const double q1; // probability single user successfully transmits
-const double q2; // probability two users successfully transmit
-const double q3; // probability three users successfully transmit
+const double q2 = q1 / 2; // probability two users successfully transmit
+const double q3 = q1 / 3; // probability three users successfully transmit
 
 module channel // used to compute joint probability distribution for transmission failure
 

@@ -29,8 +29,19 @@ module user1
 
 endmodule
 
-// construct module of second user through renaming
-module user2=user1[e1=e2,pow1=pow2,n1=n2,inc1=inc2,done1=done2] endmodule
+module user2
+	
+	e2 : [0..emax] init emax;
+	pow2 : [1..powmax] init 1; // power2
+	
+	// battery is empty
+	[done2] e2=0 -> true;
+	// battery no empty and do not follow leader's battery level
+	[n2] e2>0 -> (e2'=max(0,e2-pow2));
+	// battery not empty and follows leader's battery level
+	[inc2] e2>0 & (pow2<powmax) -> 1-fail : (pow2'=pow1+1) & (e2'=max(0,e2-pow2)) + fail : (e2'=max(0,e2-pow2));
+
+endmodule
 
 // reward structures: ri for user i
 // their own power level has a positive influence
