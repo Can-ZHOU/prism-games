@@ -930,7 +930,8 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 	 */
 	private Double matchAction2Reward(CSG<Double> csg, List<CSGRewards<Double>> rewards, int playerIndex, int stationIndex, String pAAction, String pBAction) {
 		List<Object> actionsList = csg.getAvailableActions(stationIndex);
-		String action = "[" + pAAction + "]" + "[" + pBAction +"]";
+//		String action = "[" + pAAction + "]" + "[" + pBAction +"]";
+		String action = pAAction + pBAction;
 
 		for (int i = 0; i < actionsList.size(); i++) {
 			Object obj = actionsList.get(i);
@@ -938,6 +939,8 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 				return rewards.get(playerIndex).getTransitionReward(stationIndex, i);
 			}
 		}
+
+		// need to handle the case when there is no action pair -> shouldn't happen
 		return null;
 	}
 
@@ -1050,73 +1053,6 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 		return res;
 	}
 
-	/**
-	 * Solving linear equation system based on JAS library.
-	 *
-	 * @param csg
-	 * @param rewards
-	 * @param actionNum
-	 * @param stateIndex
-	 * @param beta
-	 * @param values
-	 * @return
-	 */
-	private double[] linearEquationSolver(CSG<Double> csg, List<CSGRewards<Double>> rewards, int actionNum, int stateIndex, double[] beta, double[][] values) {
-		List<String> actionsList = csg.getActions();
-		BitSet[] actionIndex = csg.getIndexes();
-
-		List<String> actionsPlayerA = new ArrayList<>();
-		int[] indexA = actionIndex[0].stream().toArray();
-		for (int i = 0; i < indexA.length; i++) {
-			actionsPlayerA.add(actionsList.get(indexA[i]-1));
-		}
-		List<String> actionsPlayerB = new ArrayList<>();
-		int[] indexB = actionIndex[1].stream().toArray();
-		for (int i = 0; i < indexB.length; i++) {
-			actionsPlayerB.add(actionsList.get(indexB[i]-1));
-		}
-
-		int numStates = csg.getNumStates();
-		// 0:f, 1:valueA, 2:valueB
-		double[] res = new double[3];
-
-		double[][] calValB = new double[actionNum][actionNum]; // [under PlayerA's action][Player B's action]
-		double[][] calValA = new double[actionNum][actionNum]; // [under PlayerA's action][Player B's action]
-
-		for (int i = 0; i < actionNum; i++) {
-			calValB[0][i] += matchAction2Reward(csg, rewards, 1, stateIndex, actionsPlayerA.get(0), actionsPlayerB.get(i));
-			calValB[1][i] += matchAction2Reward(csg, rewards, 1, stateIndex, actionsPlayerA.get(1), actionsPlayerB.get(i));
-
-			calValA[0][i] += matchAction2Reward(csg, rewards, 0, stateIndex, actionsPlayerA.get(0), actionsPlayerB.get(i));
-			calValA[1][i] += matchAction2Reward(csg, rewards, 0, stateIndex, actionsPlayerA.get(1), actionsPlayerB.get(i));
-
-			double[] tmpTrans1 = matchAction2Trans(csg, stateIndex, actionsPlayerA.get(0), actionsPlayerB.get(i));
-			double[] tmpTrans2 = matchAction2Trans(csg, stateIndex, actionsPlayerA.get(1), actionsPlayerB.get(i));
-
-			for (int j = 0; j < numStates; j++) {
-				calValB[0][i] += beta[1] * tmpTrans1[j] * values[1][j];
-				calValB[1][i] += beta[1] * tmpTrans2[j] * values[1][j];
-
-				calValA[0][i] += beta[0] * tmpTrans1[j] * values[0][j];
-				calValA[1][i] += beta[0] * tmpTrans2[j] * values[0][j];
-			}
-
-		}
-
-		// Calculate the f -- only consider two action right now
-		double lhs = calValB[0][0] - calValB[1][0] - calValB[0][1] + calValB[1][1];
-		double rhs = calValB[1][1] - calValB[1][0];
-		double resF = rhs / lhs;
-		double valueB = resF * calValB[0][0] + (1-resF) * calValB[1][0];
-		double valueA1 = resF * calValA[0][0] + (1-resF) * calValA[1][0];
-		double valueA2 = resF * calValA[0][1] + (1-resF) * calValA[1][1];
-
-		res[0] = resF;
-		res[1] = valueA1 > valueA2? valueA1 : valueA2;
-		res[2] = valueB;
-
-		return res;
-	}
 
 	/**
 	 *
@@ -1322,7 +1258,7 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 
 		List<List<String>> tmpActionLists =  getStateActionList(csg, colA, colB, stateIndex);
 		boolean flag = false;
-				flag = true;
+//				flag = true;
 
 		List<String> actionsPlayerA = tmpActionLists.get(0);
 		List<String> actionsPlayerB = tmpActionLists.get(1);
@@ -1455,145 +1391,6 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 		return res;
 	}
 
-	/**
-	 * Solving linear equation when player B has more than 2 actions while player A still has 2 actions.
-	 *
-	 * @param csg
-	 * @param rewards
-	 * @param stateIndex
-	 * @param beta
-	 * @param values
-	 * @return
-	 */
-	private double[] linearEquationSolverPro(CSG<Double> csg, List<CSGRewards<Double>> rewards, int stateIndex, double[] beta, double[][] values) {
-		List<String> actionsList = csg.getActions();
-		BitSet[] actionIndex = csg.getIndexes();
-
-		List<String> actionsPlayerA = new ArrayList<>();
-		int[] indexA = actionIndex[0].stream().toArray();
-		for (int i = 0; i < indexA.length; i++) {
-			actionsPlayerA.add(actionsList.get(indexA[i]-1));
-		}
-		int actionNumA = actionsPlayerA.size();
-
-		List<String> actionsPlayerB = new ArrayList<>();
-		int[] indexB = actionIndex[1].stream().toArray();
-		for (int i = 0; i < indexB.length; i++) {
-			actionsPlayerB.add(actionsList.get(indexB[i]-1));
-		}
-		int actionNumB = actionsPlayerB.size();
-
-		int numStates = csg.getNumStates();
-		// 0:f, 1:valueA, 2:valueB
-		double[] res = new double[3];
-
-		double[][] calValB = new double[actionNumA][actionNumB]; // [under PlayerA's action][Player B's action]
-		double[][] calValA = new double[actionNumA][actionNumB]; // [under PlayerA's action][Player B's action]
-
-		for (int i = 0; i < actionNumB; i++) {
-
-			calValB[0][i] += matchAction2Reward(csg, rewards, 1, stateIndex, actionsPlayerA.get(0), actionsPlayerB.get(i));
-			calValB[1][i] += matchAction2Reward(csg, rewards, 1, stateIndex, actionsPlayerA.get(1), actionsPlayerB.get(i));
-
-			calValA[0][i] += matchAction2Reward(csg, rewards, 0, stateIndex, actionsPlayerA.get(0), actionsPlayerB.get(i));
-			calValA[1][i] += matchAction2Reward(csg, rewards, 0, stateIndex, actionsPlayerA.get(1), actionsPlayerB.get(i));
-
-			double[] tmpTrans1 = matchAction2Trans(csg, stateIndex, actionsPlayerA.get(0), actionsPlayerB.get(i));
-			double[] tmpTrans2 = matchAction2Trans(csg, stateIndex, actionsPlayerA.get(1), actionsPlayerB.get(i));
-
-			for (int j = 0; j < numStates; j++) {
-				calValB[0][i] += beta[1] * tmpTrans1[j] * values[1][j];
-				calValB[1][i] += beta[1] * tmpTrans2[j] * values[1][j];
-
-				calValA[0][i] += beta[0] * tmpTrans1[j] * values[0][j];
-				calValA[1][i] += beta[0] * tmpTrans2[j] * values[0][j];
-			}
-
-		}
-
-		// Calculate the f
-		// 1. get intersection points
-		int allComNum = actionNumB*(actionNumB-1)/2;
-		Map<int[],double[]> allF = new HashMap<>();
-		for (int i = 0; i < actionNumB-1; i++) {
-			for (int j = i+1; j < actionNumB; j++) {
-				double lhs = calValB[0][i] - calValB[1][i] - calValB[0][j] + calValB[1][j];
-				double rhs = calValB[1][j] - calValB[1][i];
-				double tmpF = rhs/lhs;
-				// [0]:f, [1]:VB
-				double[] tmp = {tmpF, tmpF * calValB[0][i] + (1-tmpF) * calValB[1][i]};
-
-				int[] tmpIdx = {i,j};
-				allF.put(tmpIdx, tmp);
-			}
-		}
-		// 2. select the points with max VB among the actions
-		List<Double> selectedF = new ArrayList<>();
-		List<Double> selectedVB = new ArrayList<>();
-		List<List<Integer>> selectedAction = new ArrayList<>();
-		for(Map.Entry<int[],double[]> entry : allF.entrySet()) {
-			double tmpF = entry.getValue()[0];
-			double tmpVB = entry.getValue()[1];
-			int index01 = entry.getKey()[0];
-			int index02 = entry.getKey()[1];
-			List<Integer> tmpActionList = new ArrayList<>();
-			tmpActionList.add(index01);
-			tmpActionList.add(index02);
-			boolean flag = true;
-
-			for (int i = 0; i < actionNumB; i++) {
-				if((i != index01) && (i != index02)) {
-					double tmp = tmpF * calValB[0][i] + (1-tmpF) * calValB[1][i];
-					if (tmpVB == tmp) {
-						tmpActionList.add(i);
-					} else if (tmp > tmpVB) {
-						flag = false;
-						break;
-					}
-				}
-			}
-
-			if(flag) {
-				selectedF.add(tmpF);
-				selectedVB.add(tmpVB);
-				selectedAction.add(tmpActionList);
-			}
-		}
-		// 3. get each f's max VA value
-		Map<Double, double[]> tmpResList = new HashMap<>();
-		for (int i = 0; i < selectedF.size(); i++) {
-			double tmpF = selectedF.get(i);
-			List<Integer> actionList = selectedAction.get(i);
-			List<Double> tmpVA = new ArrayList<>();
-			for (int act : actionList) {
-				tmpVA.add(tmpF * calValA[0][act] + (1-tmpF) * calValA[1][act]);
-			}
-			Collections.sort(tmpVA);
-			// [0]:f, [1]:[VA,VB]
-			double[] tmpV = {tmpVA.get(tmpVA.size()-1), selectedVB.get(i)};
-			tmpResList.put(tmpF, tmpV);
-		}
-		// 4. get f
-		double maxVA = Double.MIN_VALUE;
-		double resF = 0;
-		double VB = Double.MIN_VALUE;
-		for(Map.Entry<Double, double[]> entry : tmpResList.entrySet()) {
-			double tmpVA = entry.getValue()[0];
-			if(tmpVA > maxVA) {
-				maxVA = tmpVA;
-				resF = entry.getKey();
-				VB = entry.getValue()[1];
-			}
-		}
-
-
-		res[0] = resF;
-		res[1] = maxVA;
-		res[2] = VB;
-
-		return res;
-	}
-
 
 	/**
 	 * Solving stackelberg equilbria.
@@ -1603,7 +1400,7 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 	 * @param beta
 	 * @return
 	 */
-	private double[] stackelbergSolver(CSG<Double> csg, List<Coalition> coalitions, List<CSGRewards<Double>> rewards, double[] beta, int[] bounds, boolean flagMLP) {
+	private ModelCheckerResult stackelbergSolver(CSG<Double> csg, List<Coalition> coalitions, List<CSGRewards<Double>> rewards, double[] beta, int[] bounds, boolean flagMLP) {
 		// res[0] -> sum, res[1] -> valueA, res[2] -> valueB, res[3] -> time
 		double[] res = new double[4];
 
@@ -1617,14 +1414,11 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 		long timePrecomp = System.currentTimeMillis();
 		for (int i = 0; i < maxiter; i++) {
 			for (int j = 0; j < numStates; j++) {
-				// implemented two ways to solving linear equations, one is pure coding, another one is based on Gurobi.
-//				stateRes[j] = linearEquationSolver(csg, rewards, 2, j, beta, values);
 				if (flagMLP){
 					stateRes[j] = linearEquationSolverMultiGurobi(csg, coalitions, rewards, j, beta, values);
 				} else {
 					stateRes[j] = linearEquationSolverGurobi(csg, coalitions, rewards, j, beta, values);
 				}
-				// stateRes[j] = linearEquationSolverPro(csg, rewards, j, beta, values);
 			}
 
 
@@ -1643,7 +1437,19 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 		res[1] = stateRes[resIndex][1];
 		res[2] = stateRes[resIndex][2];
 		res[3] = timeAll;
-		return res;
+
+		ModelCheckerResult resAll = new ModelCheckerResult();
+		double[] r = new double[csg.getNumStates()];
+		for (int i = 0; i < csg.getNumStates(); i++) {
+			r[i] = stateRes[i][1] + stateRes[i][2];
+		}
+
+		mainLog.println("Coalition results (initial state): (" + stateRes[resIndex][1] + "," + stateRes[resIndex][2] + ")");
+		resAll.soln = r;
+		resAll.numIters = maxIters;
+
+
+		return resAll;
 	}
 
 	/**
@@ -1666,12 +1472,6 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 		if (genStrat) {
 			throw new PrismException("Strategy synthesis for bounded properties is not supported yet.");
 		}
-		ModelCheckerResult res = new ModelCheckerResult();
-
-		// the order is different with the function below
-		double[][] strategies = new double[csg.getNumStates()][coalitions.size()];
-		double[][] values = new double[csg.getNumStates()][coalitions.size()];
-
 		// discount value
 		double[] beta = {1, 1};
 
@@ -1681,29 +1481,10 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 		dominated = new BitSet[numCoalitions];
 		dominating = new BitSet[numCoalitions];
 
-		// [0] -> strategies/f, [1] -> valueA, [2] -> valueB
-		double[] tmpRes1 = stackelbergSolver(csg, coalitions, rewards, beta, bounds, false);
-		double[] tmpRes2 = stackelbergSolver(csg, coalitions, rewards, beta, bounds, true);
+		ModelCheckerResult res = stackelbergSolver(csg, coalitions, rewards, beta, bounds, false);
+//		double[] tmpRes2 = stackelbergSolver(csg, coalitions, rewards, beta, bounds, true);
 
-		int total = 15;
 
-		double[] sumRes = new double[total];
-		double[] leaderRes = new double[total];
-		double[] followerRes = new double[total];
-		double[] time = new double[total];
-
-		// false: using MINLP to solving Stackelberg; true: using Multi-LP
-		boolean flagMLP = true;
-		for (int i = 1; i <total+1; i++) {
-			int[] tmpBounds = {i,i};
-			double[] tmpRes = stackelbergSolver(csg, coalitions, rewards, beta, tmpBounds, flagMLP);
-			sumRes[i-1] = tmpRes[0];
-			leaderRes[i-1] = tmpRes[1];
-			followerRes[i-1] = tmpRes[2];
-			time[i-1] = tmpRes[3];
-		}
-
-		// need to trans to ModelCheckerResult
 		return res;
 	}
 	
@@ -1725,7 +1506,7 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 	 */
 	public ModelCheckerResult computeBoundedEquilibria(CSG<Double> csg, List<Coalition> coalitions, List<CSGRewards<Double>> rewards, List<ExpressionTemporal> exprs, BitSet[] targets, BitSet[] remain, int[] bounds, int eqType, int crit, boolean min) throws PrismException {
 		boolean a = true;
-//		a = false;
+		a = false;
 		if (a) {
 			return computeBoundedStackelbergEquilibria(csg, coalitions, rewards, exprs, targets, remain, bounds, eqType, crit, min);
 		}

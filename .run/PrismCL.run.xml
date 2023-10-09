@@ -1,0 +1,15 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="PrismCL" type="Application" factoryName="Application">
+    <envs>
+      <env name="GRB_LICENSE_FILE" value="$USER_HOME$/Software/license/gurobi.lic" />
+      <env name="LD_LIBRARY_PATH" value="prism/lib:$USER_HOME$/Software/gurobi1002/linux64/lib" />
+    </envs>
+    <option name="MAIN_CLASS_NAME" value="prism.PrismCL" />
+    <module name="prism-games" />
+    <option name="PROGRAM_PARAMETERS" value="prism-examples/csgs/simple/medium_access2.prism prism-examples/csgs/simple/medium_access2.props -const  emax=5,q1=0.9,q2=0.75 -const k=5 -prop 1" />
+    <shortenClasspath name="NONE" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>
