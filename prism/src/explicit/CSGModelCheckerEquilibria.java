@@ -1474,6 +1474,7 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 		}
 		// discount value
 		double[] beta = {1, 1};
+//		double[] beta = {0.9, 0.9};
 
 		buildCoalitions(csg, coalitions);
 		findMaxRowsCols(csg);
@@ -1506,7 +1507,7 @@ public class CSGModelCheckerEquilibria extends CSGModelChecker
 	 */
 	public ModelCheckerResult computeBoundedEquilibria(CSG<Double> csg, List<Coalition> coalitions, List<CSGRewards<Double>> rewards, List<ExpressionTemporal> exprs, BitSet[] targets, BitSet[] remain, int[] bounds, int eqType, int crit, boolean min) throws PrismException {
 		boolean a = true;
-		a = false;
+//		a = false;
 		if (a) {
 			return computeBoundedStackelbergEquilibria(csg, coalitions, rewards, exprs, targets, remain, bounds, eqType, crit, min);
 		}
